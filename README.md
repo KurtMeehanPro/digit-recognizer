@@ -45,4 +45,18 @@ Accept the [competition rules](https://www.kaggle.com/competitions/digit-recogni
 
 ## Dataset sanity check
 
-TBD
+From the project root, run:
+
+```bash
+python scripts/digit_dataset_sanity.py
+```
+
+The script downloads missing competition files to `data/raw/` and loads the data.
+It checks:
+
+- Training and test column names and order.
+- Pixel values are present, finite whole numbers from 0 through 255.
+- Training labels are present, finite whole numbers from 0 through 9.
+
+It prints a success message after each passing check, then the training and test
+shapes and training label counts. A failed check stops the script with an error.
