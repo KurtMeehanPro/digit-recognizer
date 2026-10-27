@@ -222,3 +222,6 @@ __marimo__/
 # Project data and local environment files
 /data/
 .env.*
+
+# macOS folder metadata
+.DS_Store
