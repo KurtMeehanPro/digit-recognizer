@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pandas as pd
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import digit_dataset_helpers as helpers
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.dataset import digit_dataset_helpers as helpers
 
 
 class DatasetLoadingTests(unittest.TestCase):
