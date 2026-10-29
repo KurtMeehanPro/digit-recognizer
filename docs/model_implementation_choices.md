@@ -11,7 +11,7 @@ This table outlines possible approaches to the handwritten-digit classification 
 | --- | --- | --- | --- | --- | --- | --- |
 | [02 — LeNet-style CNN](../notebooks/02_lenet_style_cnn.ipynb) | LeNet-style CNN | LeNet-style CNN | No | No | Yes | Use a simplified LeNet-style CNN. |
 | TBD | Bespoke CNN | Bespoke CNN | No | No | Yes | Choose our own filter sizes, filter counts, pooling, and classification layers, and include batch normalization. |
-| TBD | Residual CNN / ResNet | CNN with shortcut connections | Optional | No | Yes | Write a small residual network or adapt an existing ResNet implementation for 28 × 28 grayscale images. |
+| TBD | Residual CNN / ResNet | CNN with shortcut connections | Optional | Optional | Yes | Write a small residual network or adapt an existing ResNet implementation for 28 × 28 grayscale images. |
 | TBD | Fine-tuned pretrained model | Existing image-classification model | Yes | Yes | Yes | Adapt the input and classification layers of a pretrained model, then fine-tune on our digits. |
 
 ## References

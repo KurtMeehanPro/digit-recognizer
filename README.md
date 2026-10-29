@@ -13,11 +13,15 @@ classification accuracy: the proportion of test images classified correctly.
 
 ## Results Summary
 
-TBD
+The LeNet-style CNN achieved **98.24% validation accuracy** and **98.10% Kaggle
+accuracy**. See [model evaluations](docs/evaluations/README.md) for the training
+setup, per-digit metrics, and reproducibility check.
 
 ## Documentation
 
 - **Project README** — The project's top-level README, the document you're reading right now.
+- [Model implementation options](docs/model_implementation_choices.md) — Planned model approaches.
+- [Model evaluations](docs/evaluations/README.md) — Completed experiments, validation results, and Kaggle results.
 
 ## Layout
 
