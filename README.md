@@ -24,7 +24,9 @@ TBD
 - `data/` is reserved for competition data and generated artifacts; the entire directory is excluded from Git.
 - `docs/` — See the [Documentation](#documentation) section above.
 - `notebooks/` is reserved for numbered exploration and modeling notebooks.
-- `scripts/` is reserved for reusable project code.
+- `scripts/dataset/` — Dataset configuration, loading helpers, and sanity checks.
+- `scripts/model/` — Model architecture, training helpers, and evaluation metrics.
+- `scripts/utilities/` — Standalone tools for prediction and comparing training runs.
 - `tests/` is reserved for behavioral tests of project functionality.
 
 ## Setup
@@ -48,7 +50,7 @@ Accept the [competition rules](https://www.kaggle.com/competitions/digit-recogni
 From the project root, run:
 
 ```bash
-python scripts/digit_dataset_sanity.py
+python scripts/dataset/digit_dataset_sanity.py
 ```
 
 The script downloads missing competition files to `data/raw/` and loads the data.
@@ -60,3 +62,16 @@ It checks:
 
 It prints a success message after each passing check, then the training and test
 shapes and training label counts. A failed check stops the script with an error.
+
+## Saved-model utilities
+
+Run these from the project root with the Python environment active:
+
+```bash
+python scripts/utilities/predict_digits.py
+python scripts/utilities/compare_training_runs.py
+```
+
+Prediction loads saved LeNet weights and writes a predictions CSV. Run comparison
+checks the two latest paired model checkpoints and validation outputs for exact
+equality. Both tools accept command-line arguments; use `--help` for options.

@@ -4,7 +4,7 @@ import kagglehub
 import numpy as np
 import pandas as pd
 
-from digit_dataset_config import COMPETITION, DATA_DIR, EXPECTED_COLUMNS, FILES, PIXEL_COLUMNS
+from scripts.dataset.digit_dataset_config import COMPETITION, DATA_DIR, EXPECTED_COLUMNS, FILES, PIXEL_COLUMNS
 
 
 def ensure_dataset_downloaded() -> None:

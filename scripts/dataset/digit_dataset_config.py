@@ -3,7 +3,7 @@
 from pathlib import Path
 
 COMPETITION = "digit-recognizer"
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data" / "raw"
 FILES = {
     "train": DATA_DIR / "train.csv",

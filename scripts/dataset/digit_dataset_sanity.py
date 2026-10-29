@@ -1,6 +1,13 @@
 """Run dataset checks and print the overview."""
 
-from digit_dataset_helpers import (
+# Support direct execution as well as python -m.
+import sys
+from pathlib import Path as _Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
+
+from scripts.dataset.digit_dataset_helpers import (
     build_dataset_overview,
     load_datasets,
     validate_dataset_columns,
