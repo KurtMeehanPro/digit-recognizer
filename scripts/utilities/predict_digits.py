@@ -15,11 +15,12 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 from scripts.dataset.digit_dataset_config import PIXEL_COLUMNS, PROJECT_ROOT
-from scripts.model.digit_model_helpers import LeNet, get_training_device
+from scripts.model.digit_model_helpers import build_model, get_training_device
 
 
-def predict_digits(input_path, model_checkpoint_path, output_path, batch_size=64):
-    """Load trained LeNet weights and write a predicted digit for each input image.
+def predict_digits(input_path, model_checkpoint_path, output_path, batch_size=64,
+                   model_config=None):
+    """Load trained weights and write a predicted digit for each input image.
 
     Args:
         input_path: Location of a CSV with pixel0 through pixel783 columns.
@@ -28,6 +29,7 @@ def predict_digits(input_path, model_checkpoint_path, output_path, batch_size=64
         output_path: Where to save the predictions CSV. Parent folders are created
             if needed; an existing file at this location is overwritten.
         batch_size: Number of images to process together, defaulting to 64.
+        model_config: build_model keyword arguments; defaults to the original LeNet.
 
     Returns:
         A DataFrame containing ImageId (row numbers starting at 1) and Label
@@ -41,7 +43,7 @@ def predict_digits(input_path, model_checkpoint_path, output_path, batch_size=64
     loader = DataLoader(TensorDataset(images), batch_size=batch_size, shuffle=False)
 
     device = get_training_device()
-    model = LeNet().to(device)
+    model = build_model(**(model_config or {"model_name": "lenet"})).to(device)
     model.load_state_dict(torch.load(model_checkpoint_path, map_location=device, weights_only=True))
     model.eval()
 
@@ -80,14 +82,22 @@ def main():
                         help="Saved model weights; defaults to the newest LeNet checkpoint.")
     parser.add_argument("--output", type=Path, default=output_path)
     parser.add_argument("--batch-size", type=int, default=batch_size)
+    parser.add_argument("--config-from", type=Path,
+                        help="Validation-output file containing model_config and checkpoint_path.")
     args = parser.parse_args()
+    model_config = None
+    if args.config_from is not None:
+        saved = torch.load(args.config_from, map_location="cpu", weights_only=True)
+        model_config = saved.get("model_config", {"model_name": "lenet"})
+        if args.checkpoint is None:
+            args.checkpoint = Path(saved["checkpoint_path"])
     if args.checkpoint is None:
         checkpoints = list((PROJECT_ROOT / "data/models").glob("lenet*_best.pt"))
         if not checkpoints:
             parser.error("No LeNet checkpoint found. Train a model or provide --checkpoint.")
         args.checkpoint = max(checkpoints, key=lambda path: path.stat().st_mtime)
     print(f"Loading model weights from: {args.checkpoint}")
-    predict_digits(args.input, args.checkpoint, args.output, args.batch_size)
+    predict_digits(args.input, args.checkpoint, args.output, args.batch_size, model_config)
 
 
 if __name__ == "__main__":

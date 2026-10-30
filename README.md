@@ -79,3 +79,23 @@ python scripts/utilities/compare_training_runs.py
 Prediction loads saved LeNet weights and writes a predictions CSV. Run comparison
 checks the two latest paired model checkpoints and validation outputs for exact
 equality. Both tools accept command-line arguments; use `--help` for options.
+
+## Bespoke activation experiment
+
+[Notebook 3](notebooks/03_bespoke_cnn.ipynb) records the completed eight-stage
+bespoke CNN comparison using the same helpers and evaluation flow. Tanh reached
+**98.23% validation accuracy**; ReLU stayed at **11.15%**. The model docstring
+records the upsample/downsample hypothesis and limitations. Bilinear resizing is
+the accepted starting default. Both variants used matched seeds, split, batch
+order, and training budget. The final results-only section reloads plotting
+helpers and reads saved histories/logits without training; accuracy plots include
+a 10% chance reference and digit-three galleries are capped at ten images.
+
+To predict from a saved bespoke run, preserve its model configuration:
+
+```bash
+python scripts/utilities/predict_digits.py --config-from data/validation_outputs/bespoke_REPLACE_WITH_RUN_validation.pt --output data/predictions/bespoke_predictions.csv
+```
+
+Existing prediction defaults still select LeNet. `compare_training_runs.py` checks
+repeatability; use notebook validation metrics to compare different activations.

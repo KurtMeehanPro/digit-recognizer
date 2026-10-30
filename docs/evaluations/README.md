@@ -12,6 +12,8 @@ validation split. Planned approaches are listed in the
 | Model | Best epoch | Validation loss | Validation accuracy | Macro F1 |
 | --- | ---: | ---: | ---: | ---: |
 | LeNet-style CNN | 8 | 0.0609 | 98.24% | 0.9822 |
+| Bespoke CNN — ReLU | 9 | 2.3012 | 11.15% | 0.0201 |
+| Bespoke CNN — tanh | 10 | 0.0629 | 98.23% | 0.9822 |
 
 The checkpoint was selected by lowest validation loss, rather than by highest
 validation accuracy.
@@ -117,6 +119,33 @@ in one, validation results and run information in the other.
 
 ## Further notes
 
-These results use one validation split. We have not yet evaluated the bespoke CNN
-or other planned architectures. Comparing them on this same split will give us a
-baseline for assessing changes, though repeated tuning can also overfit validation.
+These results use one validation split. The bespoke activation comparison used
+the same validation split as LeNet; other planned architectures remain untested.
+Repeated tuning can overfit validation.
+
+## Bespoke activation comparison
+
+[Notebook 3](../../notebooks/03_bespoke_cnn.ipynb) preserves the completed ReLU
+and tanh runs, each trained for ten epochs on Apple MPS. Both used seed 42, the
+same stratified 80/20 split, batch size 64, Adam at 0.001, normalized grayscale
+inputs, and identical default initialization policy. The only activation change
+was ReLU versus tanh after each convolution.
+
+The eight-stage architecture resizes 28 to 224 with bilinear interpolation
+(`align_corners=False`), applies two SAME stride-one convolutions per stage
+(kernels 10 through 3; channels 2 through 256), and max-pools after every stage
+(stride 2, ceil mode). It ends at 256 x 1 x 1 and a linear ten-logit classifier.
+No batch normalization is included. Upsampling adds no image information; this
+single comparison does not establish its benefit or isolate why ReLU failed.
+
+Best checkpoints were selected by lowest validation loss. ReLU selected epoch 9
+and predicted digit 1 for every validation image. Tanh selected epoch 10, with
+98.23% validation accuracy, close to the LeNet baseline's 98.24%. Neither bespoke
+variant has a Kaggle test score. There was no smaller-input experiment.
+
+The notebook includes individual and shared learning curves with a 10% chance
+reference on accuracy, per-digit metrics, confusion matrices, and capped galleries
+of misclassified threes: ten of 870 ReLU errors and all nine tanh errors. Its final
+results-only section reloads plotting modules and reads the saved histories and
+aligned logits without training. Checkpoints and validation-output files remain
+local under ignored `data/`; the captured notebook outputs are versioned.
