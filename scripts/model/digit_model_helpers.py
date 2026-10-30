@@ -1,6 +1,7 @@
 """Provide digit classifiers and shared training/evaluation helpers."""
 # Standard imports
 from pathlib import Path
+import math
 import random
 
 # Third-party imports
@@ -8,99 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.model_selection import train_test_split
 import torch
-from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # Local imports
 from scripts.dataset.digit_dataset_config import PIXEL_COLUMNS
-
-
-class LeNet(nn.Module):
-    """Classify 28 × 28 grayscale images using a LeNet-style CNN."""
-
-    def __init__(self):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Conv2d(1, 6, kernel_size=5, padding=2),
-            nn.Tanh(),
-            nn.AvgPool2d(2),
-            nn.Conv2d(6, 16, kernel_size=5),
-            nn.Tanh(),
-            nn.AvgPool2d(2),
-            nn.Flatten(),
-            nn.Linear(16 * 5 * 5, 120),
-            nn.Tanh(),
-            nn.Linear(120, 84),
-            nn.Tanh(),
-            nn.Linear(84, 10),
-        )
-
-    def forward(self, images):
-        return self.network(images)
-
-
-class BespokeCNN(nn.Module):
-    """Enlarge digits before a longer geometric descent in spatial resolution.
-
-    Upsampling gives learned convolutions more spatial room while channel counts
-    grow. The hypothesis is that more learned processing along this descent may
-    help unusual handwritten digits compared with early 28 -> 14 compression.
-    Interpolation adds no new image information; any improvement is unproven.
-
-    Input is normalized N x 1 x 28 x 28. Direct interpolation to 224 x 224
-    represents three conceptual doublings, not three interpolation operations.
-    Bilinear with align_corners=False is the accepted starting default, not an
-    empirical winner; nearest and bicubic are also configurable. Bicubic can overshoot the
-    input range. ReLU (default) or tanh follows every convolution.
-
-    Each stage has TWO stride-one SAME convolutions, then 2 x 2 max pooling,
-    stride 2, ceil_mode=True. Shapes below omit N and use C x H x W:
-        kernel 10: 2 x 224 x 224 -> pool 2 x 112 x 112
-        kernel  9: 4 x 112 x 112 -> pool 4 x 56 x 56
-        kernel  8: 8 x 56 x 56   -> pool 8 x 28 x 28
-        kernel  7: 16 x 28 x 28  -> pool 16 x 14 x 14
-        kernel  6: 32 x 14 x 14  -> pool 32 x 7 x 7
-        kernel  5: 64 x 7 x 7    -> pool 64 x 4 x 4
-        kernel  4: 128 x 4 x 4   -> pool 128 x 2 x 2
-        kernel  3: 256 x 2 x 2   -> pool 256 x 1 x 1
-    Flatten -> Linear(256, 10) returns raw logits, without softmax.
-
-    Even kernels require asymmetric SAME padding. Large kernels near the bottom
-    use substantial zero padding. The resized input increases computation without
-    increasing information. No batch normalization or global pooling is added.
-    """
-
-    def __init__(self, activation="relu", upsample_mode="bilinear"):
-        super().__init__()
-        activations = {"relu": nn.ReLU, "tanh": nn.Tanh}
-        if activation not in activations:
-            raise ValueError("activation must be 'relu' or 'tanh'")
-        if upsample_mode not in {"nearest", "bilinear", "bicubic"}:
-            raise ValueError("upsample_mode must be nearest, bilinear, or bicubic")
-        self.activation = activation
-        self.upsample_mode = upsample_mode
-        resize_options = {} if upsample_mode == "nearest" else {"align_corners": False}
-        self.resize = nn.Upsample(size=(224, 224), mode=upsample_mode, **resize_options)
-        self.stages = nn.ModuleList()
-        in_channels = 1
-        for kernel, channels in zip(range(10, 2, -1), (2, 4, 8, 16, 32, 64, 128, 256)):
-            self.stages.append(nn.Sequential(
-                nn.Conv2d(in_channels, channels, kernel, stride=1, padding="same"),
-                activations[activation](),
-                nn.Conv2d(channels, channels, kernel, stride=1, padding="same"),
-                activations[activation](),
-                nn.MaxPool2d(2, stride=2, ceil_mode=True),
-            ))
-            in_channels = channels
-        self.classifier = nn.Sequential(nn.Flatten(), nn.Linear(256, 10))
-
-    def forward(self, images):
-        if images.ndim != 4 or tuple(images.shape[1:]) != (1, 28, 28):
-            raise ValueError("Expected images with shape (N, 1, 28, 28)")
-        features = self.resize(images)
-        for stage in self.stages:
-            features = stage(features)
-        return self.classifier(features)
+from scripts.model.digit_model_definitions import BespokeCNN, LeNet
 
 
 def build_model(model_name="lenet", **model_options):
@@ -160,13 +73,34 @@ def build_data_loaders(train, validation_fraction=0.2, batch_size=64, seed=42):
     return train_loader, val_loader
 
 
-def train_one_epoch(model, train_loader, loss_function, optimizer, device):
+def linear_warmup_rate(target_rate, step, warmup_steps):
+    """Rate for a one-based optimizer update; step zero denotes the starting rate.
+
+    With warmup, update 1 uses target/warmup_steps, update warmup_steps
+    reaches target, and all remaining updates hold target. No decay is added.
+    Zero warmup steps preserves constant-rate training.
+    """
+    if not math.isfinite(target_rate) or target_rate <= 0:
+        raise ValueError("target_rate must be positive and finite")
+    if not isinstance(step, int) or step < 0:
+        raise ValueError("step must be a nonnegative integer")
+    if not isinstance(warmup_steps, int) or warmup_steps < 0:
+        raise ValueError("warmup_steps must be a nonnegative integer")
+    return target_rate if warmup_steps == 0 else target_rate * min(step / warmup_steps, 1.0)
+
+
+def train_one_epoch(model, train_loader, loss_function, optimizer, device,
+                    learning_rate_schedule=None, step_offset=0):
     """Train on every batch and return total loss and number of correct predictions."""
     model.train()
     train_loss_sum = 0.0
     train_correct = 0
 
-    for batch_images, batch_labels in train_loader:
+    for batch_step, (batch_images, batch_labels) in enumerate(train_loader, start=1):
+        if learning_rate_schedule is not None:
+            rate = learning_rate_schedule(step_offset + batch_step)
+            for group in optimizer.param_groups:
+                group["lr"] = rate
         batch_images = batch_images.to(device)
         batch_labels = batch_labels.to(device)
         optimizer.zero_grad(set_to_none=True)
@@ -231,7 +165,8 @@ def update_best_checkpoint(model, metrics, checkpoint_path, epoch_val_logits,
 
 
 def train_model(model, train_loader, val_loader, loss_function,
-                epochs, checkpoint_path, learning_rate=0.001):
+                epochs, checkpoint_path, learning_rate=0.001,
+                warmup_fraction=0.0, weight_decay=0.0):
     """Train a classifier, restore its best validation-loss weights, and return metrics.
 
     The loss function must return a tensor containing the individual loss values,
@@ -239,13 +174,23 @@ def train_model(model, train_loader, val_loader, loss_function,
     Labels must be integer class indices.
     Also return the best epoch's validation logits and matching labels on CPU,
     in validation-loader order. Only the current and best epochs are retained.
+    Optional linear warmup covers ceil(warmup_fraction * total optimizer steps),
+    followed by a constant rate. Defaults preserve the original training path.
     """
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
+    if not math.isfinite(warmup_fraction) or not 0 <= warmup_fraction <= 1:
+        raise ValueError("warmup_fraction must be between zero and one")
+    linear_warmup_rate(learning_rate, 0, 0)
+    total_steps = epochs * len(train_loader)
+    if total_steps == 0:
+        raise ValueError("Training loader must contain at least one batch")
+    warmup_steps = math.ceil(warmup_fraction * total_steps)
+    schedule = (lambda step: linear_warmup_rate(learning_rate, step, warmup_steps)) if warmup_steps else None
     device = get_training_device()
-    print(f"Training device: {device}")
+    print(f"Training device: {device}", flush=True)
     model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     checkpoint_path = Path(checkpoint_path)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     history = []
@@ -262,6 +207,7 @@ def train_model(model, train_loader, val_loader, loss_function,
     for epoch in range(1, epochs + 1):
         train_loss_sum, train_correct = train_one_epoch(
             model, train_loader, loss_function, optimizer, device,
+            learning_rate_schedule=schedule, step_offset=(epoch - 1) * len(train_loader),
         )
         val_loss_sum, val_correct, epoch_val_logits, epoch_val_labels = validate_one_epoch(
             model, val_loader, loss_function, device,
@@ -271,6 +217,10 @@ def train_model(model, train_loader, val_loader, loss_function,
             epoch, train_loss_sum, val_loss_sum, train_correct,
             val_correct, train_count, val_count,
         )
+        if warmup_steps:
+            metrics["learning_rate_first"] = schedule((epoch - 1) * len(train_loader) + 1)
+            metrics["learning_rate_last"] = schedule(epoch * len(train_loader))
+            metrics["optimizer_steps_completed"] = epoch * len(train_loader)
         history.append(metrics)
         best_val_loss, best_epoch, best_val_logits, best_val_labels = update_best_checkpoint(
             model, metrics, checkpoint_path, epoch_val_logits, epoch_val_labels,
@@ -280,7 +230,8 @@ def train_model(model, train_loader, val_loader, loss_function,
         print(
             f"Epoch {epoch:02d}/{epochs} | "
             f"train loss {metrics['train_loss']:.4f}, accuracy {metrics['train_accuracy']:.2%} | "
-            f"val loss {metrics['val_loss']:.4f}, accuracy {metrics['val_accuracy']:.2%}"
+            f"val loss {metrics['val_loss']:.4f}, accuracy {metrics['val_accuracy']:.2%}",
+            flush=True,
         )
 
     model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
