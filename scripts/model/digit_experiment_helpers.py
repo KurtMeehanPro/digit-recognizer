@@ -39,7 +39,7 @@ def inspect_bespoke_model(activation="relu", upsample_mode="bilinear", seed=42):
     """CPU-only shape inspection, no training or dataset access."""
     models.seed_training(seed)
     model = models.build_model("bespoke", activation=activation, upsample_mode=upsample_mode)
-    print(model)
+    print(f"BespokeCNN: activation={activation}, resize={upsample_mode}, input=(1, 1, 28, 28)")
     with torch.no_grad():
         print("Output shape:", tuple(model(torch.zeros(1, 1, 28, 28)).shape))
 
@@ -78,84 +78,67 @@ def run_bespoke_sweep(*, epochs, learning_rates, warmup_fraction, weight_decay,
     return selected
 
 
-def _show_baseline_runs(run_files):
-    """Render the named historical baseline exactly once from aligned saved logits."""
+def _show_run_details(run, loader):
+    """Current run tables/figures from saved best-epoch outputs, without inference."""
+    activation = run["model_config"]["activation"]
+    rate = run["training_config"]["learning_rate"]
+    display(Markdown(f"### {activation.upper()} · target {rate:g} · {run['run_id']}"))
+    display(pd.DataFrame(run["history"]))
+    figure = models.plot_training_history(pd.DataFrame(run["history"]), run["best_epoch"], chance_reference=.1)
+    display(figure)
+    plt.close(figure)
+    labels = run["labels"]
+    predictions = run["logits"].argmax(1)
+    matrix = confusion_matrix(labels.numpy(), predictions.numpy(), labels=list(range(10)))
+    figure, ax = plt.subplots(figsize=(8, 8))
+    ConfusionMatrixDisplay(matrix, display_labels=list(range(10))).plot(
+        ax=ax, cmap="Blues", values_format="d", colorbar=False)
+    ax.set_title(f"{activation.upper()}, LR {rate:g} — best-checkpoint confusion matrix")
+    figure.tight_layout()
+    display(figure)
+    plt.close(figure)
+    display(metrics.build_per_digit_metrics(matrix).sort_values("F1"))
+    figure = metrics.plot_misclassified_digit(None, loader, digit=3, max_images=10,
+                                              validation_logits=run["logits"])
+    if figure is not None:
+        display(figure)
+        plt.close(figure)
+    actual, predicted, scores = models.inspect_last_validation_prediction(run["logits"], labels)
+    print(f"Actual digit: {actual} | Predicted digit: {predicted}")
+    display(scores)
+
+
+def show_results(sweep_directory=None):
+    """One current-experiment report; never starts training or model inference."""
     import hashlib
-    runs = {name: torch.load(Path(path), map_location="cpu", weights_only=True)
-            for name, path in run_files.items()}
+    if sweep_directory is None:
+        print("Select a saved sweep directory after running the experiment.")
+        return
+    directory = Path(sweep_directory)
+    status = json.loads((directory / "status.json").read_text())
+    display(Markdown("### Three-epoch warm-up sweep"))
+    print("Status:", status["status"], "| completed:", len(status["completed_runs"]), "/ 8")
+    if status.get("partial_run"):
+        partial = status["partial_run"]
+        print("Partial run — not a completed three-epoch result:", partial)
+        log = (directory / "sweep.log").read_text()
+        segment = log.rsplit("START " + partial["run_id"], 1)[-1]
+        print("\n".join(line for line in segment.splitlines() if line.startswith("Epoch ")))
+    if status.get("active_run"):
+        print("Active:", status["active_run"])
+    if not status["completed_runs"]:
+        print("No completed validation artifacts saved yet.")
+        return
+    display(pd.DataFrame(status["completed_runs"]))
+    for name in ("learning_rate_comparison.png", "epoch_comparison.png"):
+        if (directory / name).is_file():
+            display(Image(filename=str(directory / name)))
     train = pd.read_csv(PROJECT_ROOT / "data/raw/train.csv")
     _, loader = models.build_data_loaders(train, validation_fraction=.2, batch_size=64, seed=42)
     images, labels = loader.dataset.tensors
     fingerprint = hashlib.sha256(images.numpy().tobytes() + labels.numpy().tobytes()).hexdigest()
-    summary = []
-    for activation, run in runs.items():
+    for row in status["completed_runs"]:
+        run = torch.load(row["validation_outputs"], map_location="cpu", weights_only=True)
+        assert run["sweep_directory"] == str(directory)
         assert run["validation_sha256"] == fingerprint and torch.equal(run["labels"], labels)
-        display(Markdown(f"#### Historical {activation.upper()} — {len(run['history'])} epochs"))
-        history = pd.DataFrame(run["history"])
-        display(history)
-        figure = models.plot_training_history(history, run["best_epoch"], chance_reference=.1)
-        display(figure)
-        plt.close(figure)
-        predictions = run["logits"].argmax(1)
-        matrix = confusion_matrix(labels.numpy(), predictions.numpy(), labels=list(range(10)))
-        figure, ax = plt.subplots(figsize=(8, 8))
-        ConfusionMatrixDisplay(matrix, display_labels=list(range(10))).plot(
-            ax=ax, cmap="Blues", values_format="d", colorbar=False)
-        ax.set_title(f"Historical {activation.upper()} — best-checkpoint confusion matrix")
-        figure.tight_layout()
-        display(figure)
-        plt.close(figure)
-        per_digit = metrics.build_per_digit_metrics(matrix).sort_values("F1")
-        display(per_digit)
-        figure = metrics.plot_misclassified_digit(None, loader, digit=3, max_images=10,
-                                                  validation_logits=run["logits"])
-        if figure is not None:
-            display(figure)
-            plt.close(figure)
-        actual, predicted, scores = models.inspect_last_validation_prediction(run["logits"], labels)
-        print(f"Actual digit: {actual} | Predicted digit: {predicted}")
-        display(scores)
-        best = run["history"][run["best_epoch"] - 1]
-        summary.append({"activation": activation, "run_id": run["run_id"],
-                        "best_epoch": run["best_epoch"], "val_loss": best["val_loss"],
-                        "val_accuracy": best["val_accuracy"], "macro_f1": per_digit["F1"].mean()})
-    display(pd.DataFrame(summary))
-    figure, axes = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
-    for activation, color in (("relu", "tab:blue"), ("tanh", "tab:orange")):
-        if activation not in runs:
-            continue
-        history = pd.DataFrame(runs[activation]["history"])
-        for split, style in (("train", "-"), ("val", "--")):
-            for ax, metric in zip(axes, ("loss", "accuracy")):
-                ax.plot(history.epoch, history[f"{split}_{metric}"], color=color, linestyle=style,
-                        marker="o", label=f"{activation} {split}")
-    axes[0].set(title="Historical baseline — loss", xlabel="Epoch", ylabel="Cross-entropy loss")
-    axes[1].set(title="Historical baseline — accuracy", xlabel="Epoch", ylabel="Accuracy", ylim=(0, 1))
-    axes[1].axhline(.1, color="crimson", linestyle="--", label="Chance reference (10%)")
-    for ax in axes:
-        ax.grid(alpha=.3)
-        ax.legend()
-    figure.tight_layout()
-    display(figure)
-    plt.close(figure)
-
-
-def show_results(sweep_directory=None, *, historical_runs=None):
-    """One final notebook report; never starts training or model inference."""
-    if sweep_directory is not None:
-        directory = Path(sweep_directory)
-        status = json.loads((directory / "status.json").read_text())
-        display(Markdown("### Three-epoch warm-up sweep"))
-        print("Status:", status["status"], "| completed:", len(status["completed_runs"]), "/ 8")
-        if status.get("partial_run"):
-            print("Partial run (not a completed three-epoch result):", status["partial_run"])
-        if status.get("active_run"):
-            print("Active:", status["active_run"])
-        if status["completed_runs"]:
-            display(pd.DataFrame(status["completed_runs"]))
-        for name in ("learning_rate_comparison.png", "epoch_comparison.png"):
-            if (directory / name).is_file():
-                display(Image(filename=str(directory / name)))
-    if historical_runs:
-        display(Markdown("### Preserved historical ten-epoch baseline"))
-        _show_baseline_runs(historical_runs)
+        _show_run_details(run, loader)
