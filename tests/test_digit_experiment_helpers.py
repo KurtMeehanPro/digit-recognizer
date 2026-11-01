@@ -13,7 +13,7 @@ class NotebookDelegationTests(unittest.TestCase):
     def test_training_controls_are_forwarded_to_existing_runner(self):
         directory = Path('/tmp/controlled-sweep-test')
         class FakeProcess:
-            stdout = [f'SWEEP_DIRECTORY {directory}\n']
+            stdout = [f'Learning-rate testing results: {directory}\n']
             def __enter__(self): return self
             def __exit__(self, *args): return False
             def wait(self): return 0
@@ -32,6 +32,11 @@ class NotebookDelegationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'no duplicate'):
                 experiments.run_bespoke_sweep(epochs=3, learning_rates=(1e-6,), warmup_fraction=.1, weight_decay=0)
             launch.assert_not_called()
+
+    def test_refresh_keeps_metric_compatibility_import_current(self):
+        from scripts.model import digit_model_metrics as metrics
+        experiments.refresh_helpers()
+        self.assertIs(helpers.build_epoch_metrics, metrics.build_epoch_metrics)
 
     def test_legacy_helper_exports_remain_compatible(self):
         self.assertIs(helpers.LeNet,definitions.LeNet)

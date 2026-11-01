@@ -1,45 +1,27 @@
 # Bespoke CNN — three-epoch warm-up sweep
 
-**Status:** Stopped by user; 3/8 runs completed. Owned Python PID 11474 and its
-caffeinate helper were confirmed exited. No automatic restart.
+**Status:** All 8 runs completed. A final notebook-byte check failed afterward; status was recovered from validated artifacts, with the original error retained.
 **Date:** October 30, 2026 (America/New_York run timestamps).
 
-**Change / controls:** Keep the 224-upsample model, seed 42, stratified 80/20 split,
-batch 64, Adam, zero weight decay, and MPS. Run ReLU then tanh serially at targets
-`1e-6 → 1e-5 → 1e-4 → 1e-3`, three epochs each. Linear warm-up covers 158 of 1,575
-updates: first update uses target/158; update 158 reaches target; then hold.
+**Change / controls:** Unchanged 224-upsample model; seed 42, stratified 80/20 split, batch 64, Adam, zero weight decay, MPS. ReLU then tanh ran serially at targets `1e-6 → 1e-5 → 1e-4 → 1e-3`, three epochs each. Linear warm-up reaches target at update 158 of 1,575, then holds; no decay.
 
-| Activation / target LR | Status | Selected epoch | Validation loss | Validation accuracy |
-| --- | --- | ---: | ---: | ---: |
-| ReLU / 1e-6 | Complete | 3 | 2.303033 | 9.94% |
-| tanh / 1e-6 | Complete | 3 | 2.302255 | 9.94% |
-| ReLU / 1e-5 | Complete | 3 | 2.301181 | 11.15% |
-| tanh / 1e-5 | Partial: 2/3 epochs | — | 0.9807* | 65.95%* |
+| Activation | Target LR | Selected epoch | Validation loss | Validation accuracy |
+| --- | ---: | ---: | ---: | ---: |
+| relu | 1e-06 | 3 | 2.303033 | 9.94% |
+| tanh | 1e-06 | 3 | 2.302255 | 9.94% |
+| relu | 1e-05 | 3 | 2.301181 | 11.15% |
+| tanh | 1e-05 | 3 | 0.810183 | 72.81% |
+| relu | 0.0001 | 3 | 2.301183 | 11.15% |
+| tanh | 0.0001 | 3 | 0.110873 | 96.89% |
+| relu | 0.001 | 3 | 2.301210 | 11.15% |
+| tanh | 0.001 | 2 | 0.111401 | 96.86% |
 
-\*Rounded progress-log values, not a completed run's selected result. Targets
-1e-4 and 1e-3 were not run. Read exact completed values from saved histories.
+**Finding:** Tanh at 1e-4 (8,139/8,400 correct) led 1e-3 by only three validation images. ReLU remained near chance. Initialization, data order, and validation fingerprints matched. One seed does not establish a general winner or warm-up benefit.
 
-**Finding:** Completed runs matched initialization, data order, and validation
-fingerprints. Tanh improved at 1e-5, but this incomplete sweep cannot establish
-the best learning rate or a warm-up benefit.
+**Next:** Inspect notebook 03’s final Results cell; no retraining is needed. The protection check now allows notebook 03 autosaves/presentation edits while still protecting prior artifacts, notebook 02, and captured model/training source snapshots.
 
-**Next:** User tests from notebook 03. Its selected directory can resume missing
-configurations; partial runs restart with fresh IDs because optimizer state was
-not saved. Completed configurations are kept. No agent training remains running.
+**Artifacts:** `data/experiments/bespoke_lr_sweep_20261030_031845_3f06eb0f/` contains status, logs, summary CSV, comparison plots, source snapshots, and recovery provenance. Paired files remain in `data/models/` and `data/validation_outputs/`; exact filenames/run IDs are in `summary.csv` and `status.json`.
 
-**Run IDs:** ReLU 1e-6 `20261030_033200_d3f00f63`;
-tanh 1e-6 `20261030_034120_0102dfb8`;
-ReLU 1e-5 `20261030_035045_c888c9c9`;
-partial tanh 1e-5 `20261030_040011_24992242`.
-The earlier interrupted ReLU attempt `20261030_031846_d6571c35` was retained.
+**Provenance:** `status_before_bookkeeping_recovery.json` preserves the original failed wrapper status/error; `completion_recovery` records validation and checksums. All eight paired artifacts were verified unchanged. The earlier interrupted attempts remain saved. Original partial-run documentation is retained in Git at `2301b74:docs/evaluations/bespoke-warmup-sweep.md`.
 
-**Artifacts:** `data/experiments/bespoke_lr_sweep_20261030_031845_3f06eb0f/` holds
-status, logs, summary CSV, comparison plots, source snapshots, and the authorized
-presentation-change manifest. Paired weights/validation files use
-`data/models/bespoke_{activation}_{run_id}_best.pt` and
-`data/validation_outputs/bespoke_{activation}_{run_id}_validation.pt`.
-
-**Provenance:** Original detailed recovery/refactor record is retained in Git at
-`2301b74:docs/evaluations/bespoke-warmup-sweep.md`.
-[Architecture](assets/bespoke-224-architecture.png) ·
-[First-run comparison](bespoke-first-run.md).
+[Architecture](assets/bespoke-224-architecture.png) · [First-run comparison](bespoke-first-run.md).

@@ -125,7 +125,7 @@ Repeated tuning can overfit validation.
 
 ## Bespoke activation comparison
 
-[Notebook 3](../../notebooks/03_bespoke_cnn.ipynb) preserves the completed ReLU
+[Notebook 3](../../notebooks/03_bespoke_upsampling_cnn.ipynb) preserves the completed ReLU
 and tanh runs, each trained for ten epochs on Apple MPS. Both used seed 42, the
 same stratified 80/20 split, batch size 64, Adam at 0.001, normalized grayscale
 inputs, and identical default initialization policy. The only activation change

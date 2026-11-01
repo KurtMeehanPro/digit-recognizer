@@ -82,7 +82,7 @@ equality. Both tools accept command-line arguments; use `--help` for options.
 
 ## Bespoke activation experiment
 
-[Notebook 3](notebooks/03_bespoke_cnn.ipynb) records the completed eight-stage
+[Notebook 3](notebooks/03_bespoke_upsampling_cnn.ipynb) records the completed eight-stage
 bespoke CNN comparison using the same helpers and evaluation flow. Tanh reached
 **98.23% validation accuracy**; ReLU stayed at **11.15%**. The model docstring
 records the upsample/downsample hypothesis and limitations. Bilinear resizing is
