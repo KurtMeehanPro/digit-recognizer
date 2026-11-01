@@ -13,15 +13,15 @@ classification accuracy: the proportion of test images classified correctly.
 
 ## Results Summary
 
-The LeNet-style CNN achieved **98.24% validation accuracy** and **98.10% Kaggle
-accuracy**. See [model evaluations](docs/evaluations/README.md) for the training
-setup, per-digit metrics, and reproducibility check.
+The best saved conventional CNN achieved **99.14% validation accuracy**.
+The submitted LeNet-style CNN achieved **98.10% Kaggle accuracy**. These scores come from
+different models and evaluation sets. See the [curated results](docs/evaluations/README.md)
+for context and limitations.
 
 ## Documentation
 
-- **Project README** — The project's top-level README, the document you're reading right now.
-- [Model implementation options](docs/model_implementation_choices.md) — Planned model approaches.
-- [Model evaluations](docs/evaluations/README.md) — Completed experiments, validation results, and Kaggle results.
+- **[Start here: primary model guide](docs/model_implementation_choices.md)** — Architectures, notebook roles and future options.
+- [Curated results](docs/evaluations/README.md) — Selected validation and Kaggle findings with limitations.
 
 ## Layout
 
@@ -80,16 +80,12 @@ Prediction loads saved LeNet weights and writes a predictions CSV. Run compariso
 checks the two latest paired model checkpoints and validation outputs for exact
 equality. Both tools accept command-line arguments; use `--help` for options.
 
-## Bespoke activation experiment
+## Bespoke CNN experiments
 
-[Notebook 3](notebooks/03_bespoke_cnn.ipynb) records the completed eight-stage
-bespoke CNN comparison using the same helpers and evaluation flow. Tanh reached
-**98.23% validation accuracy**; ReLU stayed at **11.15%**. The model docstring
-records the upsample/downsample hypothesis and limitations. Bilinear resizing is
-the accepted starting default. Both variants used matched seeds, split, batch
-order, and training budget. The final results-only section reloads plotting
-helpers and reads saved histories/logits without training; accuracy plots include
-a 10% chance reference and digit-three galleries are capped at ten images.
+Notebook 03 studies upsampling; notebook 04 uses native 28 × 28 input; notebook 05
+reuses the conventional architecture for performance experiments. The primary
+model guide above links to each notebook; the curated results page summarizes
+the selected findings.
 
 To predict from a saved bespoke run, preserve its model configuration:
 

@@ -1,151 +1,32 @@
-# Model evaluations
+# Curated model results
 
-This page records completed model evaluations for the Digit Recognizer project.
-The LeNet-style CNN is our baseline; future models can be compared using the same
-validation split. Planned approaches are listed in the
-[model implementation options](../model_implementation_choices.md).
+The [primary model guide](../model_implementation_choices.md) describes the
+architectures and notebook roles. These are selected findings, not a run log.
 
-## Results summary
-
-### Validation results
-
-| Model | Best epoch | Validation loss | Validation accuracy | Macro F1 |
+| Notebook / setup | Selected epoch | Validation loss | Validation accuracy | Kaggle accuracy |
 | --- | ---: | ---: | ---: | ---: |
-| LeNet-style CNN | 8 | 0.0609 | 98.24% | 0.9822 |
-| Bespoke CNN — ReLU | 9 | 2.3012 | 11.15% | 0.0201 |
-| Bespoke CNN — tanh | 10 | 0.0629 | 98.23% | 0.9822 |
+| [02 — LeNet-style CNN](../../notebooks/02_lenet_style_cnn.ipynb) | 8 | 0.0609 | 98.24% | 98.10% |
+| [03 — Upsampling CNN, tanh](../../notebooks/03_bespoke_upsampling_cnn.ipynb) | 10 | 0.0629 | 98.23% | Not submitted |
+| [04 — Conventional CNN, ReLU](../../notebooks/04_bespoke_conventional_cnn.ipynb) | 3 | 0.066391 | 98.10% | Not submitted |
+| [05 — Conventional CNN — Performance](../../notebooks/05_bespoke_conventional_cnn_performance.ipynb), ReLU + fixed rotations | 3 | 0.033286 | **99.14%** | Not submitted |
 
-The checkpoint was selected by lowest validation loss, rather than by highest
-validation accuracy.
+The best saved conventional run used LR 0.00075, eleven fixed training views
+(0°, ±5°, ±10°, ±22°, ±45°, ±90°), 10% linear warm-up and no regularization.
+Its upright validation result was 8,328/8,400 correct. Longer training and the
+initial L2/decoupled-weight-decay trials did not improve on that saved winner.
 
-### Kaggle test result
+Checkpoints are selected by lowest unpenalized validation cross-entropy, which
+can differ from the epoch with highest accuracy. Experiments use the same
+seed 42 stratified 80/20 split, but architectures and training budgets differ;
+augmentation expands the training budget elevenfold. These single-seed results
+and repeated validation tuning do not establish a general improvement or an
+unbiased final test score. Only the LeNet result above has a Kaggle score.
 
-**Accuracy: 98.10%** (Kaggle score: **0.98100**).
+Notebook 05 includes captured comparisons, per-digit metrics and saved-winner
+error galleries. Remaining errors mix unusual handwriting with recognizable
+digits; model probabilities are not calibrated certainty.
 
-The first successful submission appeared at **rank 688** on the rolling
-[Digit Recognizer leaderboard](https://www.kaggle.com/competitions/digit-recognizer/leaderboard)
-on October 29, 2026. Rank changes as other participants submit.
-The leaderboard stated that scoring used all 28,000 test images.
-
-The model was trained locally using
-[notebook 2](../../notebooks/02_lenet_style_cnn.ipynb). The
-[prediction utility](../../scripts/utilities/predict_digits.py) loaded its saved
-weights and generated the CSV uploaded to Kaggle. A Kaggle-hosted submission
-notebook was not used for this result.
-
-Kaggle does not provide the test labels needed to calculate our own per-digit
-metrics. The remaining analysis uses the held-out validation set.
-
-## Per-digit validation results
-
-Count refers to actual examples of the digit. Incorrectly predicted is the number
-of those examples assigned another digit. Precision, recall, F1, and accuracy use
-a one-versus-rest interpretation for each digit. Accuracy includes true negatives;
-recall is the fraction of actual examples of that digit classified correctly.
-
-| Digit | Count | Correctly predicted | Incorrectly predicted | Precision | Recall | F1 | Accuracy |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0 | 827 | 820 | 7 | 98.20% | 99.15% | 98.68% | 99.74% |
-| 1 | 937 | 932 | 5 | 98.31% | 99.47% | 98.89% | 99.75% |
-| 2 | 835 | 815 | 20 | 98.91% | 97.60% | 98.25% | 99.65% |
-| 3 | 870 | 843 | 27 | 97.91% | 96.90% | 97.40% | 99.46% |
-| 4 | 814 | 808 | 6 | 98.54% | 99.26% | 98.90% | 99.79% |
-| 5 | 759 | 737 | 22 | 97.88% | 97.10% | 97.49% | 99.55% |
-| 6 | 827 | 821 | 6 | 98.68% | 99.27% | 98.98% | 99.80% |
-| 7 | 880 | 874 | 6 | 97.54% | 99.32% | 98.42% | 99.67% |
-| 8 | 813 | 791 | 22 | 98.26% | 97.29% | 97.78% | 99.57% |
-| 9 | 838 | 811 | 27 | 98.18% | 96.78% | 97.48% | 99.50% |
-
-## Findings
-
-- Digit 3 had the lowest F1, at 97.40%, with 27 of 870 actual threes misclassified.
-- Digit 9 had the lowest recall, at 96.78%, with 27 of 838 actual nines misclassified.
-- Digit 6 had the highest F1, at 98.98%.
-- Training loss continued falling after epoch 8, but neither epoch 9 nor epoch 10
-  improved validation loss. We restored epoch 8 rather than the final weights.
-- The validation accuracy of 98.24% and Kaggle accuracy of 98.10% were close in this
-  experiment. Further model comparisons should use validation results for selection.
-- The misclassified-three gallery includes ambiguous handwriting and digits that
-  visually resemble other classes. Visual guesses about why the model erred are
-  hypotheses, not explanations established by the model's predictions alone.
-
-## Evaluation approach
-
-- Split the 42,000 labeled images into 33,600 training and 8,400 validation images.
-- Use a stratified 80/20 split with seed 42 and keep validation order fixed.
-- Scale pixel intensities from 0–255 to 0–1; reshape each image to one 28 × 28 channel.
-- Train the LeNet-style CNN from random initialization, using tanh and average pooling.
-- Use Adam with learning rate 0.001, batch size 64, and ten epochs on Apple MPS.
-- Request individual cross-entropy losses; use their mean for backpropagation and
-  their sum divided by the dataset size for epoch loss reporting.
-- Restore the checkpoint with the lowest validation loss.
-- Keep the best epoch's validation logits and labels aligned for later inspection.
-
-The model has 61,706 learned values in ten weight and bias tensors. Training uses
-only the training subset; validation does not update model parameters. The test
-images are used for submission predictions.
-
-## Reproducibility check
-
-We compared two separately saved training runs using
-[compare_training_runs.py](../../scripts/utilities/compare_training_runs.py):
-
-- All model weight and bias tensors matched exactly.
-- All 84,000 validation logits (8,400 images × ten scores) matched exactly.
-- Validation labels matched in order.
-- Maximum absolute logit difference was zero; no predicted digits changed.
-- Both runs selected epoch 8.
-
-This establishes exact agreement for the compared runs. A fixed seed alone does
-not guarantee identical results across every future run, hardware configuration,
-or library version.
-
-## Detailed outputs and saved artifacts
-
-[Notebook 2](../../notebooks/02_lenet_style_cnn.ipynb) contains learning curves, a
-confusion matrix, the per-digit table sorted by F1, a gallery of misclassified
-threes, and one validation image's logits and probabilities.
-
-Local artifacts are excluded from Git:
-
-- `data/models/`: best model weights for each run.
-- `data/validation_outputs/`: logits, labels, best epoch, seed, validation fraction,
-  run identifier, and matching checkpoint path.
-- `data/predictions/`: the predictions CSV generated by the standalone utility.
-
-Model and validation-output filenames share a run identifier so the two files can
-be paired. PyTorch files in these folders have different contents: model parameters
-in one, validation results and run information in the other.
-
-## Further notes
-
-These results use one validation split. The bespoke activation comparison used
-the same validation split as LeNet; other planned architectures remain untested.
-Repeated tuning can overfit validation.
-
-## Bespoke activation comparison
-
-[Notebook 3](../../notebooks/03_bespoke_cnn.ipynb) preserves the completed ReLU
-and tanh runs, each trained for ten epochs on Apple MPS. Both used seed 42, the
-same stratified 80/20 split, batch size 64, Adam at 0.001, normalized grayscale
-inputs, and identical default initialization policy. The only activation change
-was ReLU versus tanh after each convolution.
-
-The eight-stage architecture resizes 28 to 224 with bilinear interpolation
-(`align_corners=False`), applies two SAME stride-one convolutions per stage
-(kernels 10 through 3; channels 2 through 256), and max-pools after every stage
-(stride 2, ceil mode). It ends at 256 x 1 x 1 and a linear ten-logit classifier.
-No batch normalization is included. Upsampling adds no image information; this
-single comparison does not establish its benefit or isolate why ReLU failed.
-
-Best checkpoints were selected by lowest validation loss. ReLU selected epoch 9
-and predicted digit 1 for every validation image. Tanh selected epoch 10, with
-98.23% validation accuracy, close to the LeNet baseline's 98.24%. Neither bespoke
-variant has a Kaggle test score. There was no smaller-input experiment.
-
-The notebook includes individual and shared learning curves with a 10% chance
-reference on accuracy, per-digit metrics, confusion matrices, and capped galleries
-of misclassified threes: ten of 870 ReLU errors and all nine tanh errors. Its final
-results-only section reloads plotting modules and reads the saved histories and
-aligned logits without training. Checkpoints and validation-output files remain
-local under ignored `data/`; the captured notebook outputs are versioned.
+Detailed run notes, full histories, datasets and checkpoints are local records
+under ignored `data/`. Saved-output refresh cells require those local artifacts;
+they are not bundled with the public repository. Public notebook outputs and
+this page retain the selected findings. New results are promoted here selectively.
