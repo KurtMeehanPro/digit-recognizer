@@ -101,7 +101,7 @@ class AugmentationTests(unittest.TestCase):
 
     def test_prepared_notebook_syntax_and_metadata(self):
         root=Path(__file__).resolve().parents[1]
-        nb=json.loads((root/'notebooks/05_bespoke_conventional_performance_cnn.ipynb').read_text())
+        nb=json.loads((root/'notebooks/05_bespoke_conventional_cnn_performance.ipynb').read_text())
         for cell in nb['cells']:
             if cell['cell_type']=='code':
                 compile(''.join(cell['source']),'<notebook05>','exec')

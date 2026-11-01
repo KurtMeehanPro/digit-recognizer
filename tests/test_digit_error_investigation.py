@@ -42,7 +42,7 @@ class ErrorInvestigationTests(unittest.TestCase):
         plt.close(fig)
         with self.assertRaises(ValueError):m.plot_error_gallery(torch.zeros(2,1,28,28),pd.concat([errors,errors]),'Duplicates')
     def test_appended_notebook_preserves_existing_cells(self):
-        root=Path(__file__).resolve().parents[1];nb=json.loads((root/'notebooks/05_bespoke_conventional_performance_cnn.ipynb').read_text())
+        root=Path(__file__).resolve().parents[1];nb=json.loads((root/'notebooks/05_bespoke_conventional_cnn_performance.ipynb').read_text())
         last=nb['cells'][-1];source=''.join(last['source'])
         self.assertIn('20261030_143937_9823b3b6',source);self.assertIn('max_per_digit=8',source)
         compile(source,'<saved-errors>','exec')

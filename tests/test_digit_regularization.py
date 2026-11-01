@@ -62,7 +62,7 @@ class RegularizationTests(unittest.TestCase):
             self.assertEqual(p.read_bytes(),before)
 
     def test_notebook_preserves_first_three_and_appends_independent_arms(self):
-        root=Path(__file__).resolve().parents[1];nb=json.loads((root/'notebooks/05_bespoke_conventional_performance_cnn.ipynb').read_text())
+        root=Path(__file__).resolve().parents[1];nb=json.loads((root/'notebooks/05_bespoke_conventional_cnn_performance.ipynb').read_text())
         config=nb['metadata']['digit_experiment']['configuration']
         self.assertEqual(config['relu_rates'],[.0005,.00075,.001,.00125,.0015])
         self.assertEqual(config['ten_epoch_followup']['epochs'],10)

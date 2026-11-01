@@ -42,7 +42,7 @@ class AugmentedNotebookPlanTests(unittest.TestCase):
     def test_ten_epoch_followup_prepared_after_comparison(self):
         import math
         root=Path(__file__).resolve().parents[1]
-        nb=json.loads((root/'notebooks/05_bespoke_conventional_performance_cnn.ipynb').read_text())
+        nb=json.loads((root/'notebooks/05_bespoke_conventional_cnn_performance.ipynb').read_text())
         sources=[''.join(cell['source']) for cell in nb['cells']]
         compare=next(i for i,text in enumerate(sources) if 'SELECTED_RUNS = experiments.run_augmented_comparison' in text)
         follow=next(i for i,text in enumerate(sources) if 'FOLLOWUP_DIRECTORY = experiments.run_bespoke_sweep' in text)
