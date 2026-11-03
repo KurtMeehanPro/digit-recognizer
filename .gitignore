@@ -221,6 +221,7 @@ __marimo__/
 
 # Project data and local environment files
 /data/
+/tests/
 .env.*
 
 # macOS folder metadata
