@@ -10,6 +10,8 @@ if __package__ in (None, ""):
 from scripts.dataset.digit_dataset_helpers import (
     build_dataset_overview,
     load_datasets,
+)
+from scripts.dataset.digit_dataset_validation import (
     validate_dataset_columns,
     validate_image_values,
     validate_labels,

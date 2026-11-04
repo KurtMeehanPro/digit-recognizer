@@ -10,15 +10,16 @@ import sys
 from pathlib import Path as _Path
 
 if __package__ in (None, ""):
-    sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
+    sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 
 from scripts.dataset.digit_dataset_config import PROJECT_ROOT
+from utilities.digit_run_artifacts import load_run, iter_validation_paths
 
 
 def compare_training_runs(first_path, second_path):
     """Print exact equality checks for two validation files and their checkpoints."""
-    first = torch.load(first_path, map_location="cpu", weights_only=True)
-    second = torch.load(second_path, map_location="cpu", weights_only=True)
+    first = load_run(first_path)
+    second = load_run(second_path)
     first_weights = torch.load(first["checkpoint_path"], map_location="cpu", weights_only=True)
     second_weights = torch.load(second["checkpoint_path"], map_location="cpu", weights_only=True)
 
@@ -50,10 +51,9 @@ def main():
             parser.error("Provide exactly two files, or no files to use the latest two runs.")
         paths = args.runs
     else:
-        folder = PROJECT_ROOT / "data" / "validation_outputs"
         paths = []
-        for path in sorted(folder.glob("*.pt"), key=lambda p: p.stat().st_mtime):
-            data = torch.load(path, map_location="cpu", weights_only=True)
+        for path in sorted(iter_validation_paths(PROJECT_ROOT), key=lambda p: p.stat().st_mtime):
+            data = load_run(path)
             if "checkpoint_path" in data and Path(data["checkpoint_path"]).is_file():
                 paths.append(path)
         if len(paths) < 2:

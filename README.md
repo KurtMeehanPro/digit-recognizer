@@ -20,17 +20,19 @@ for context and limitations.
 
 ## Documentation
 
-- **[Start here: primary model guide](docs/model_implementation_choices.md)** — Architectures, notebook roles and future options.
-- [Curated results](docs/evaluations/README.md) — Selected validation and Kaggle findings with limitations.
+- **[Project README](README.md)** — The project’s top-level README, the document you’re reading right now.
+- [Model implementation choices](docs/model_implementation_choices.md) — Architectures, notebook roles and future options.
+- [Evaluation results](docs/evaluations/README.md) — Selected validation and Kaggle findings with limitations.
+- [Experiment slide deck](docs/digit-recognizer-overview.pptx) — Model cards and experiment changes.
 
 ## Layout
 
-- `data/` is reserved for competition data and generated artifacts; the entire directory is excluded from Git.
+- `data/` is excluded from Git. Shared inputs live in `data/raw/`; normal runs are flat records in `data/runs/<run_id>/` with checkpoint, validation outputs, settings, history, logs and notes. Multi-run comparisons stay in `data/runs/experiments/`; disposable scratch runs stay in `data/tmp/`.
 - `docs/` — See the [Documentation](#documentation) section above.
 - `notebooks/` is reserved for numbered exploration and modeling notebooks.
 - `scripts/dataset/` — Dataset configuration, loading helpers, and sanity checks.
 - `scripts/model/` — Model architecture, training helpers, and evaluation metrics.
-- `scripts/utilities/` — Standalone tools for prediction and comparing training runs.
+- `utilities/` — Standalone tools for prediction and comparing training runs.
 - `tests/` is reserved for behavioral tests of project functionality.
 
 ## Setup
@@ -72,8 +74,8 @@ shapes and training label counts. A failed check stops the script with an error.
 Run these from the project root with the Python environment active:
 
 ```bash
-python scripts/utilities/predict_digits.py
-python scripts/utilities/compare_training_runs.py
+python utilities/predict_digits.py
+python utilities/compare_training_runs.py
 ```
 
 Prediction loads saved LeNet weights and writes a predictions CSV. Run comparison
@@ -90,8 +92,9 @@ the selected findings.
 To predict from a saved bespoke run, preserve its model configuration:
 
 ```bash
-python scripts/utilities/predict_digits.py --config-from data/validation_outputs/bespoke_REPLACE_WITH_RUN_validation.pt --output data/predictions/bespoke_predictions.csv
+python utilities/predict_digits.py --config-from data/runs/REPLACE_WITH_RUN_ID
 ```
 
+Prediction output defaults to `predictions.csv` beside the selected checkpoint.
 Existing prediction defaults still select LeNet. `compare_training_runs.py` checks
 repeatability; use notebook validation metrics to compare different activations.
