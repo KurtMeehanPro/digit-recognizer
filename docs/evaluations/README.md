@@ -1,6 +1,6 @@
 # Curated model results
 
-The [primary model guide](../model_implementation_choices.md) describes the
+The [Model implementation choices](../model_implementation_choices.md) describes the
 architectures and notebook roles. These are selected findings, not a run log.
 
 | Notebook / setup | Selected epoch | Validation loss | Validation accuracy | Kaggle accuracy |

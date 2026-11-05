@@ -12,10 +12,11 @@ import sys
 from pathlib import Path as _Path
 
 if __package__ in (None, ""):
-    sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
+    sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 
 from scripts.dataset.digit_dataset_config import PIXEL_COLUMNS, PROJECT_ROOT
-from scripts.model.digit_model_helpers import build_model, get_training_device
+from utilities.digit_run_artifacts import load_run, iter_validation_paths
+from scripts.model.digit_model_train import build_model, get_training_device
 
 
 def predict_digits(input_path, model_checkpoint_path, output_path, batch_size=64,
@@ -73,7 +74,7 @@ def predict_digits(input_path, model_checkpoint_path, output_path, batch_size=64
 def main():
     input_path = PROJECT_ROOT / "data/raw/test.csv"
     model_checkpoint_path = None
-    output_path = PROJECT_ROOT / "data/predictions/lenet_predictions.csv"
+    output_path = None
     batch_size = 64
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -87,15 +88,19 @@ def main():
     args = parser.parse_args()
     model_config = None
     if args.config_from is not None:
-        saved = torch.load(args.config_from, map_location="cpu", weights_only=True)
+        saved = load_run(args.config_from)
         model_config = saved.get("model_config", {"model_name": "lenet"})
         if args.checkpoint is None:
             args.checkpoint = Path(saved["checkpoint_path"])
     if args.checkpoint is None:
-        checkpoints = list((PROJECT_ROOT / "data/models").glob("lenet*_best.pt"))
+        checkpoints = [Path(saved["checkpoint_path"]) for path in iter_validation_paths(PROJECT_ROOT)
+                       if (saved := load_run(path))["model_config"]["model_name"] == "lenet"
+                       and Path(saved["checkpoint_path"]).is_file()]
         if not checkpoints:
             parser.error("No LeNet checkpoint found. Train a model or provide --checkpoint.")
         args.checkpoint = max(checkpoints, key=lambda path: path.stat().st_mtime)
+    if args.output is None:
+        args.output = args.checkpoint.parent / "predictions.csv"
     print(f"Loading model weights from: {args.checkpoint}")
     predict_digits(args.input, args.checkpoint, args.output, args.batch_size, model_config)
 

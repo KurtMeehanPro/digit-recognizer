@@ -17,15 +17,20 @@ from IPython.display import Image, Markdown, display
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 
 from scripts.dataset.digit_dataset_config import PROJECT_ROOT
+from utilities.digit_run_artifacts import load_run
+from scripts.dataset import digit_dataset_augmentation as augmentation
 from scripts.model import digit_model_definitions as definitions
-from scripts.model import digit_model_helpers as models
+from scripts.model import digit_model_train as models
 from scripts.model import digit_model_metrics as metrics
+from scripts.model import digit_model_training_options as training_options
 
 
 def refresh_helpers():
     """Refresh definitions/training/plot modules without rerunning an experiment."""
+    importlib.reload(augmentation)
     importlib.reload(definitions)
     importlib.reload(metrics)
+    importlib.reload(training_options)
     importlib.reload(models)
 
 
@@ -35,11 +40,11 @@ def show_dataset_summary():
         print(f"{label} shape: {frame.shape}")
 
 
-def inspect_bespoke_model(activation="relu", upsample_mode="bilinear", seed=42, model_name="bespoke"):
+def inspect_bespoke_model(activation="relu", upsample_mode="bilinear", seed=42, model_name="bespoke_upsampling"):
     """CPU-only shape inspection, no training or dataset access."""
     models.seed_training(seed)
     options = {"activation": activation}
-    if model_name == "bespoke":
+    if model_name == "bespoke_upsampling":
         options["upsample_mode"] = upsample_mode
     model = models.build_model(model_name, **options)
     print(f"{type(model).__name__}: activation={activation}, input=(1, 1, 28, 28)")
@@ -48,7 +53,7 @@ def inspect_bespoke_model(activation="relu", upsample_mode="bilinear", seed=42, 
 
 
 def run_bespoke_sweep(*, epochs, learning_rates, warmup_fraction, weight_decay,
-                       sweep_directory=None, model_name="bespoke", activations=None,
+                       sweep_directory=None, model_name="bespoke_upsampling", activations=None,
                        rotation_degrees=None, augmentation_seed=42, rotation_angles=None, l2_strength=0.0, decoupled_weight_decay=0.0):
     """Run serially using the existing utility and this notebook's interpreter.
 
@@ -56,11 +61,11 @@ def run_bespoke_sweep(*, epochs, learning_rates, warmup_fraction, weight_decay,
     configurations in an existing directory are kept; incomplete ones restart
     with fresh IDs. A held managed-run lock prevents duplicate training.
     """
-    from scripts.utilities.bespoke_lr_sweep import active_sweep_directories
+    from utilities.bespoke_lr_sweep import active_sweep_directories
     active = active_sweep_directories()
     if active:
         raise RuntimeError(f"A sweep is already running at {active[0]}; no duplicate training started.")
-    command = [sys.executable, "-u", str(PROJECT_ROOT / "scripts/utilities/bespoke_lr_sweep.py"),
+    command = [sys.executable, "-u", str(PROJECT_ROOT / "utilities/bespoke_lr_sweep.py"),
                "--run", "--epochs", str(epochs), "--learning-rates", *map(str, learning_rates),
                "--warmup-fraction", str(warmup_fraction), "--weight-decay", str(weight_decay),
                "--model", model_name]
@@ -116,7 +121,7 @@ def _show_run_details(run, loader):
     figure.tight_layout()
     display(figure)
     plt.close(figure)
-    display(metrics.build_per_digit_metrics(matrix).sort_values("F1"))
+    display(metrics.build_per_class_metrics(matrix).sort_values("F1"))
     figure = metrics.plot_misclassified_digit(None, loader, digit=3, max_images=10,
                                               validation_logits=run["logits"])
     if figure is not None:
@@ -135,7 +140,7 @@ def show_results(sweep_directory=None):
         return
     directory = Path(sweep_directory)
     status = json.loads((directory / "status.json").read_text())
-    title = "Bespoke Conventional CNN — learning-rate testing" if status.get("model_name") == "bespoke28" else "Three-epoch warm-up sweep"
+    title = "Bespoke Conventional CNN — learning-rate testing" if status.get("model_name") == "bespoke" else "Three-epoch warm-up sweep"
     display(Markdown("### " + title))
     if "regularization" in status:
         print("Regularization:", status["regularization"])
@@ -162,7 +167,7 @@ def show_results(sweep_directory=None):
     images, labels = loader.dataset.tensors
     fingerprint = hashlib.sha256(images.numpy().tobytes() + labels.numpy().tobytes()).hexdigest()
     for row in status["completed_runs"]:
-        run = torch.load(row["validation_outputs"], map_location="cpu", weights_only=True)
+        run = load_run(row["validation_outputs"])
         assert run["sweep_directory"] == str(directory)
         assert run["validation_sha256"] == fingerprint and torch.equal(run["labels"], labels)
         _show_run_details(run, loader)
@@ -181,7 +186,7 @@ def run_rotation_experiment(*, rotation_ranges, epochs=3, learning_rate=.0001,
         print(f"Training rotation range: ±{degrees:g}° (0 = unaugmented baseline)")
         selected[degrees] = run_bespoke_sweep(
             epochs=epochs, learning_rates=(learning_rate,), warmup_fraction=warmup_fraction,
-            weight_decay=weight_decay, model_name="bespoke28", activations=(activation,),
+            weight_decay=weight_decay, model_name="bespoke", activations=(activation,),
             rotation_degrees=degrees, augmentation_seed=augmentation_seed,
             sweep_directory=selected.get(degrees))
     return selected
@@ -211,7 +216,7 @@ def run_augmented_comparison(*, tanh_rate, relu_rates, rotation_angles, epochs=3
     fresh=True ignores saved groups and allocates a new group per configuration.
     No training happens until this function is explicitly called by the notebook.
     """
-    expected_augmentation = models.rotation_configuration(0, augmentation_seed, rotation_angles)
+    expected_augmentation = augmentation.rotation_configuration(0, augmentation_seed, rotation_angles)
     available = []
     if not fresh:
         for group in saved_groups:
@@ -220,13 +225,13 @@ def run_augmented_comparison(*, tanh_rate, relu_rates, rotation_angles, epochs=3
                 continue
             status = json.loads(path.read_text())
             for row in status.get("completed_runs", []):
-                run = torch.load(row["validation_outputs"], map_location="cpu", weights_only=True)
+                run = load_run(row["validation_outputs"])
                 c = run["training_config"]
                 expected = {"epochs": epochs, "seed": 42, "batch_size": 64,
                             "validation_fraction": .2, "optimizer": "Adam",
                             "weight_decay": weight_decay, "augmentation": expected_augmentation,
                             "checkpoint_selection": "lowest_validation_loss"}
-                if c.get("regularization", models.regularization_configuration()) == models.regularization_configuration() and run["model_config"]["model_name"] == "bespoke28" and all(c.get(k) == v for k,v in expected.items()) and c["schedule"]["fraction"] == warmup_fraction and Path(run["checkpoint_path"]).is_file():
+                if c.get("regularization", training_options.regularization_configuration()) == training_options.regularization_configuration() and run["model_config"]["model_name"] == "bespoke" and all(c.get(k) == v for k,v in expected.items()) and c["schedule"]["fraction"] == warmup_fraction and Path(run["checkpoint_path"]).is_file():
                     available.append((row, Path(group)))
     selected = []
     for activation, rate in [("tanh", tanh_rate), *(("relu", rate) for rate in relu_rates)]:
@@ -237,7 +242,7 @@ def run_augmented_comparison(*, tanh_rate, relu_rates, rotation_angles, epochs=3
             print(f"Already completed, no retraining | {activation} | target_lr={rate:g} | validation_accuracy={row['val_accuracy']:.2%} | {row['run_id']}")
         else:
             group = run_bespoke_sweep(epochs=epochs, learning_rates=(rate,), warmup_fraction=warmup_fraction,
-                                      weight_decay=weight_decay, model_name="bespoke28", activations=(activation,),
+                                      weight_decay=weight_decay, model_name="bespoke", activations=(activation,),
                                       rotation_angles=rotation_angles, augmentation_seed=augmentation_seed)
             row = json.loads((group / "status.json").read_text())["completed_runs"][0]
         selected.append({**row, "results_directory": str(group), "reused": match is not None})
@@ -251,7 +256,7 @@ def show_augmented_comparison(selected):
         return
     rows=[]
     for row in selected:
-        run=torch.load(row["validation_outputs"], map_location="cpu", weights_only=True)
+        run=load_run(row["validation_outputs"])
         peak=max(run["history"],key=lambda h:h["val_accuracy"])
         rows.append({"activation":row["activation"],"learning_rate":row["target_learning_rate"],
                      "selected_epoch":run["best_epoch"],"selected_accuracy":row["val_accuracy"],

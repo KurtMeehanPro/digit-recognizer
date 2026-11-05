@@ -19,7 +19,6 @@ def build_epoch_metrics(epoch, train_loss_sum, val_loss_sum, train_correct,
     }
 
 
-
 def plot_validation_confusion_matrix(model, val_loader):
     """Return the validation confusion matrix and its figure for digits 0 through 9."""
     device = next(model.parameters()).device
@@ -42,11 +41,11 @@ def plot_validation_confusion_matrix(model, val_loader):
     return matrix, fig
 
 
-def build_per_digit_metrics(matrix):
-    """Summarize a confusion matrix whose rows are actual digits and columns predictions.
+def build_per_class_metrics(matrix):
+    """Summarize a confusion matrix whose rows are actual classes and columns predictions.
 
-    Count and incorrect predictions refer to actual examples of each digit.
-    Accuracy treats each digit versus all others and includes true negatives.
+    Count and incorrect predictions refer to actual examples of each class.
+    Accuracy treats each class versus all others and includes true negatives.
     Undefined precision, recall, or F1 values are reported as zero.
     """
     matrix = np.asarray(matrix)
@@ -65,7 +64,7 @@ def build_per_digit_metrics(matrix):
         )
 
     return pd.DataFrame({
-        "Digit": np.arange(len(matrix)),
+        "Class": np.arange(len(matrix)),
         "Count": count,
         "Correctly Predicted": correct,
         "Incorrectly Predicted": false_negative,
@@ -73,9 +72,10 @@ def build_per_digit_metrics(matrix):
         "Recall": divide(correct, count),
         "F1": divide(2 * correct, predicted_count + count),
         "Accuracy": divide(correct + true_negative, total),
-    }).set_index("Digit")
+    }).set_index("Class")
 
 
+# image classification function
 def plot_misclassified_digit(model, val_loader, digit=3, columns=8, max_images=None,
                              validation_logits=None):
     """Display errors for a digit, optionally capped in validation order.
@@ -142,12 +142,17 @@ def aligned_saved_validation(artifact, frame):
     import hashlib
     from sklearn.model_selection import train_test_split
     from scripts.dataset.digit_dataset_config import PIXEL_COLUMNS
+
+    IMAGE_RESHAPE = (-1, 1, 28, 28)
     digest = hashlib.sha256(frame[["label", *PIXEL_COLUMNS]].to_numpy().tobytes()).hexdigest()
+
     if digest != artifact["dataset_sha256"]:
         raise ValueError("Raw dataset fingerprint differs from saved run")
+
     _, indices = train_test_split(np.arange(len(frame)),
         test_size=artifact["validation_fraction"], random_state=artifact["seed"], stratify=frame["label"].to_numpy())
-    images = torch.tensor(frame.iloc[indices][PIXEL_COLUMNS].to_numpy(), dtype=torch.float32).reshape(-1,1,28,28) / 255.0
+
+    images = torch.tensor(frame.iloc[indices][PIXEL_COLUMNS].to_numpy(), dtype=torch.float32).reshape(IMAGE_RESHAPE) / 255.0
     labels = torch.tensor(frame.iloc[indices]["label"].to_numpy(), dtype=torch.long)
     fingerprint = hashlib.sha256(images.numpy().tobytes() + labels.numpy().tobytes()).hexdigest()
     logits = artifact["logits"].detach().cpu()
@@ -164,7 +169,7 @@ def build_error_tables(logits, labels, source_indices):
     confidence, predicted = probabilities.max(1)
     correct = predicted.eq(labels)
     matrix = confusion_matrix(labels.numpy(), predicted.numpy(), labels=list(range(10)))
-    per_digit = build_per_digit_metrics(matrix).rename(columns={"Count":"Support", "Incorrectly Predicted":"Errors"})
+    per_digit = build_per_class_metrics(matrix).rename(columns={"Count":"Support", "Incorrectly Predicted":"Errors"})
     per_digit = per_digit[["Support", "Correctly Predicted", "Errors", "Precision", "Recall", "F1"]]
     top_two = probabilities.topk(2,dim=1).values
     predictions = pd.DataFrame({"validation_index":np.arange(len(labels)), "source_row_index":source_indices,
@@ -219,21 +224,23 @@ def investigate_saved_errors(validation_artifact, output_directory=None, max_per
     if not isinstance(max_per_digit,int) or not 1<=max_per_digit<=8:
         raise ValueError("max_per_digit must be an integer from 1 through 8")
     path=Path(validation_artifact).resolve()
-    artifact=torch.load(path,map_location="cpu",weights_only=True)
+    from utilities.digit_run_artifacts import load_run, validation_path
+    path=validation_path(path).resolve()
+    artifact=load_run(path)
     if not Path(artifact["checkpoint_path"]).is_file():
         raise ValueError("Referenced saved checkpoint is missing")
     frame=pd.read_csv(PROJECT_ROOT/'data/raw/train.csv')
     images,labels,source_indices=aligned_saved_validation(artifact,frame)
     matrix,per_digit,predictions,errors,pairs,bins=build_error_tables(artifact['logits'],labels,source_indices)
     if output_directory is None:
-        directory=Path(artifact['sweep_directory'])/'error_investigations'/('saved_validation_'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_'+uuid4().hex[:8])
+        directory = path.parent if path.name == 'output.pt' else Path(artifact['sweep_directory'])/'error_investigations'/('saved_validation_'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_'+uuid4().hex[:8])
     else:directory=Path(output_directory)
-    if directory.exists():
+    if (directory/'summary.json').is_file():
         metadata=json.loads((directory/'summary.json').read_text())
         if metadata['validation_artifact_sha256']!=hashlib.sha256(path.read_bytes()).hexdigest() or metadata['max_per_digit']!=max_per_digit:
             raise ValueError("Existing report belongs to different predictions/settings")
     else:
-        directory.mkdir(parents=True,exist_ok=False)
+        directory.mkdir(parents=True,exist_ok=True)
         per_digit.to_csv(directory/'per_digit_metrics.csv')
         predictions.to_csv(directory/'validation_predictions.csv',index=False)
         pairs.to_csv(directory/'confusion_pairs.csv',index=False)
