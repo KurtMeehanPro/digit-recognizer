@@ -101,11 +101,11 @@ class BespokeCNN(nn.Module):
 
     Shapes omit batch and use C x H x W. Both convolutions in each block keep
     the listed pre-pool size:
-        kernel 7:  16 x 28 x 28 -> pool  16 x 14 x 14
-        kernel 6:  32 x 14 x 14 -> pool  32 x  7 x  7
-        kernel 5:  64 x  7 x  7 -> pool  64 x  4 x  4
-        kernel 4: 128 x  4 x  4 -> pool 128 x  2 x  2
-        kernel 3: 256 x  2 x  2 -> pool 256 x  1 x  1
+        16 x 28 x 28 -> pool  16 x 14 x 14
+        32 x 14 x 14 -> pool  32 x  7 x  7
+        64 x  7 x  7 -> pool  64 x  4 x  4
+        128 x  4 x  4 -> pool 128 x  2 x  2
+        256 x  2 x  2 -> pool 256 x  1 x  1
     Flatten 256 -> Linear(256, 10) returns raw logits, without model softmax.
     There is no resize, global average pooling, or batch normalization. Even
     kernels need asymmetric SAME zero padding; late kernels see substantial
