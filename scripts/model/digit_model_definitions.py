@@ -27,8 +27,7 @@ class LeNet(nn.Module):
         return self.network(images)
 
 
-
-class BespokeCNN(nn.Module):
+class BespokeCNN_upsampling(nn.Module):
     """Enlarge digits before a longer geometric descent in spatial resolution.
 
     Upsampling gives learned convolutions more spatial room while channel counts
@@ -44,14 +43,14 @@ class BespokeCNN(nn.Module):
 
     Each stage has TWO stride-one SAME convolutions, then 2 x 2 max pooling,
     stride 2, ceil_mode=True. Shapes below omit N and use C x H x W:
-        kernel 10: 2 x 224 x 224 -> pool 2 x 112 x 112
-        kernel  9: 4 x 112 x 112 -> pool 4 x 56 x 56
-        kernel  8: 8 x 56 x 56   -> pool 8 x 28 x 28
-        kernel  7: 16 x 28 x 28  -> pool 16 x 14 x 14
-        kernel  6: 32 x 14 x 14  -> pool 32 x 7 x 7
-        kernel  5: 64 x 7 x 7    -> pool 64 x 4 x 4
-        kernel  4: 128 x 4 x 4   -> pool 128 x 2 x 2
-        kernel  3: 256 x 2 x 2   -> pool 256 x 1 x 1
+        2 x 224 x 224 -> pool 2 x 112 x 112
+        4 x 112 x 112 -> pool 4 x 56 x 56
+        8 x 56 x 56   -> pool 8 x 28 x 28
+        16 x 28 x 28  -> pool 16 x 14 x 14
+        32 x 14 x 14  -> pool 32 x 7 x 7
+        64 x 7 x 7    -> pool 64 x 4 x 4
+        128 x 4 x 4   -> pool 128 x 2 x 2
+        256 x 2 x 2   -> pool 256 x 1 x 1
     Flatten -> Linear(256, 10) returns raw logits, without softmax.
 
     Even kernels require asymmetric SAME padding. Large kernels near the bottom
@@ -91,21 +90,22 @@ class BespokeCNN(nn.Module):
             features = stage(features)
         return self.classifier(features)
 
-class BespokeCNN28(nn.Module):
+
+class BespokeCNN(nn.Module):
     """Classify normalized 28 x 28 digits without resizing the input.
 
     This is a separate, untrained five-block architecture for a future comparison;
-    the existing 224-upsample BespokeCNN is unchanged. Each block has two stride-1
+    the existing 224-upsample BespokeCNN_upsampling is unchanged. Each block has two stride-1
     SAME convolutions, an activation after each, then 2 x 2 max pooling at stride
     2 with ceil_mode=True. Activation is ReLU (default) or tanh.
 
     Shapes omit batch and use C x H x W. Both convolutions in each block keep
     the listed pre-pool size:
-        kernel 7:  16 x 28 x 28 -> pool  16 x 14 x 14
-        kernel 6:  32 x 14 x 14 -> pool  32 x  7 x  7
-        kernel 5:  64 x  7 x  7 -> pool  64 x  4 x  4
-        kernel 4: 128 x  4 x  4 -> pool 128 x  2 x  2
-        kernel 3: 256 x  2 x  2 -> pool 256 x  1 x  1
+        16 x 28 x 28 -> pool  16 x 14 x 14
+        32 x 14 x 14 -> pool  32 x  7 x  7
+        64 x  7 x  7 -> pool  64 x  4 x  4
+        128 x  4 x  4 -> pool 128 x  2 x  2
+        256 x  2 x  2 -> pool 256 x  1 x  1
     Flatten 256 -> Linear(256, 10) returns raw logits, without model softmax.
     There is no resize, global average pooling, or batch normalization. Even
     kernels need asymmetric SAME zero padding; late kernels see substantial

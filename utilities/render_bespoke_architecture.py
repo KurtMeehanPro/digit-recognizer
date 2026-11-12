@@ -39,14 +39,14 @@ def render_card(output):
     draw.text((80,1390), '1 × 1 × 256  →  Flatten 256  →  Linear 10 logits',font=font(38),fill=ink)
     draw.text((80,1450), 'Raw logits; no softmax in the model.',font=font(27),fill=muted)
     metadata=PngImagePlugin.PngInfo()
-    metadata.add_text('Description','Pillow-rendered implemented eight-stage 224-input BespokeCNN; two SAME convolutions and ceil-mode max pooling per row.')
+    metadata.add_text('Description','Pillow-rendered implemented eight-stage 224-input BespokeCNN_upsampling; two SAME convolutions and ceil-mode max pooling per row.')
     output=Path(output);output.parent.mkdir(parents=True,exist_ok=True)
     image.save(output,pnginfo=metadata)
     return image
 
 
 if __name__=='__main__':
-    root=Path(__file__).resolve().parents[2]
+    root=Path(__file__).resolve().parents[1]
     path=root/'docs/evaluations/assets/bespoke-224-architecture.png'
     render_card(path)
     print(path)

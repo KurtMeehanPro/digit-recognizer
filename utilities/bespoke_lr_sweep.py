@@ -19,7 +19,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -31,14 +31,18 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from scripts.dataset.digit_dataset_config import PIXEL_COLUMNS, PROJECT_ROOT
-from scripts.model.digit_model_helpers import (
-    build_data_loaders, build_model, get_training_device, linear_warmup_rate,
-    seed_training, train_model, rotation_configuration, regularization_configuration,
+from scripts.dataset.digit_dataset_augmentation import rotation_configuration
+from scripts.model.digit_model_training_options import linear_warmup_rate, regularization_configuration
+from scripts.model.digit_model_train import (
+    build_data_loaders, build_model, get_training_device,
+    seed_training, train_model,
 )
+
+from utilities.digit_run_artifacts import (allocate_run, iter_validation_paths, load_run, save_run_record, write_run_readme)
 
 TARGET_RATES = (1e-6, 1e-5, 1e-4, 1e-3)
 ACTIVATIONS = ("relu", "tanh")
-MODEL_NAME = "bespoke"
+MODEL_NAME = "bespoke_upsampling"
 SEED = 42
 BATCH_SIZE = 64
 EPOCHS = 3
@@ -56,15 +60,11 @@ def unique_run_id():
     return datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:8]
 
 
-def run_paths(activation, run_id, root=PROJECT_ROOT, model_name="bespoke"):
+def run_paths(activation, run_id, root=PROJECT_ROOT, model_name="bespoke_upsampling"):
     """Use the existing model/validation pairing convention; refuse reused paths."""
-    if model_name not in {"bespoke", "bespoke28"}:
+    if model_name not in {"bespoke_upsampling", "bespoke"}:
         raise ValueError("Unsupported bespoke model name")
-    paths = (root / "data/models" / f"{model_name}_{activation}_{run_id}_best.pt",
-             root / "data/validation_outputs" / f"{model_name}_{activation}_{run_id}_validation.pt")
-    if any(path.exists() for path in paths):
-        raise FileExistsError("Run ID already has an artifact; refusing overwrite")
-    return paths
+    return allocate_run(run_id, root)
 
 
 def state_fingerprint(model):
@@ -164,16 +164,16 @@ def capture_protected_files(root=PROJECT_ROOT):
 
     Notebook 03 autosaves outputs during its own run. Evaluation notes are also
     editable. Neither is an immutable training artifact. Model/training source
-    used by a run is captured separately in verified source snapshots.
+    used by a run is identified by hashes; project source remains in Git.
     """
-    files = [*root.glob("data/models/*.pt"), *root.glob("data/validation_outputs/*.pt"),
+    files = [*root.glob("data/models/*.pt"), *root.glob("data/validation_outputs/*.pt"), *root.glob("data/runs/*/*.pt"),
              root / "notebooks/02_lenet_style_cnn.ipynb"]
     return {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in files if path.is_file()}
 
 
 def verify_protected_files(fingerprints):
-    """Reject changed/deleted prior artifacts and captured source snapshots."""
+    """Reject changed/deleted prior result artifacts."""
     for name, expected in fingerprints.items():
         path = Path(name)
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
@@ -187,13 +187,14 @@ def execute_sweep(directory, resume=False):
     train = pd.read_csv(PROJECT_ROOT / "data/raw/train.csv")
     dataset_hash = hashlib.sha256(train[["label", *PIXEL_COLUMNS]].to_numpy().tobytes()).hexdigest()
     protected_hashes = capture_protected_files()
-    source_paths = [Path(__file__), PROJECT_ROOT / "scripts/model/digit_model_helpers.py",
+    source_paths = [Path(__file__), PROJECT_ROOT / "scripts/model/digit_model_train.py",
                     PROJECT_ROOT / "scripts/model/digit_model_definitions.py",
-                    PROJECT_ROOT / "scripts/model/digit_model_metrics.py"]
+                    PROJECT_ROOT / "scripts/model/digit_model_metrics.py",
+                    PROJECT_ROOT / "utilities/digit_run_artifacts.py"]
     source_hashes = {str(p.relative_to(PROJECT_ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_paths}
     environment = {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__,
                    "pandas": pd.__version__, "sklearn": sklearn.__version__, "device": str(device)}
-    status = {"status": "running", "mode": "sequential", "architecture": ("unchanged 224-upsample eight-stage bespoke" if MODEL_NAME == "bespoke" else "28-input five-stage BespokeCNN28"),
+    status = {"status": "running", "mode": "sequential", "architecture": ("unchanged 224-upsample eight-stage bespoke" if MODEL_NAME == "bespoke_upsampling" else "28-input five-stage BespokeCNN"),
               "model_name": MODEL_NAME, "regularization": regularization_configuration(L2_STRENGTH, DECOUPLED_WEIGHT_DECAY), "augmentation": rotation_configuration(ROTATION_DEGREES, AUGMENTATION_SEED, ROTATION_ANGLES),
               "target_rates": TARGET_RATES, "activations": ACTIVATIONS, "epochs_per_run": EPOCHS,
               "warmup_fraction": WARMUP_FRACTION, "weight_decay": WEIGHT_DECAY,
@@ -207,8 +208,8 @@ def execute_sweep(directory, resume=False):
             "reason": "Previous runner absent after tool transport disconnect; incomplete run restarts with fresh ID",
         }]
         # Recover completed artifacts even if the process ended before updating status.
-        for path in sorted((PROJECT_ROOT / "data/validation_outputs").glob("bespoke*_validation.pt")):
-            saved = torch.load(path, map_location="cpu", weights_only=True)
+        for path in iter_validation_paths(PROJECT_ROOT):
+            saved = load_run(path)
             if saved.get("sweep_directory") != str(directory):
                 continue
             if len(saved["history"]) != EPOCHS or not Path(saved["checkpoint_path"]).is_file():
@@ -245,13 +246,6 @@ def execute_sweep(directory, resume=False):
         if len(set(keys)) != len(keys):
             raise RuntimeError("Duplicate completed configurations; refusing automatic resume")
         status["completed_runs"] = summaries
-    snapshot = directory / "source_snapshots" / unique_run_id()
-    snapshot.mkdir(parents=True, exist_ok=False)
-    for source in source_paths:
-        target = snapshot / source.relative_to(PROJECT_ROOT)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(source.read_bytes())
-        protected_hashes[str(target)] = hashlib.sha256(target.read_bytes()).hexdigest()
     expected_init = runs[0]["initial_weights_sha256"] if runs else None
     expected_order = runs[0]["first_epoch_order_sha256"] if runs else None
     sweep_start = time.perf_counter()
@@ -267,7 +261,7 @@ def execute_sweep(directory, resume=False):
             train_loader, val_loader = build_data_loaders(train, VALIDATION_FRACTION, BATCH_SIZE, SEED,
                                                          ROTATION_DEGREES, AUGMENTATION_SEED, ROTATION_ANGLES)
             model_config = {"model_name": MODEL_NAME, "activation": activation}
-            if MODEL_NAME == "bespoke":
+            if MODEL_NAME == "bespoke_upsampling":
                 model_config["upsample_mode"] = "bilinear"
             model = build_model(**model_config)
             initial_hash, order_hash = state_fingerprint(model), order_fingerprint(train_loader)
@@ -275,7 +269,7 @@ def execute_sweep(directory, resume=False):
             expected_order = expected_order or order_hash
             assert initial_hash == expected_init and order_hash == expected_order
             run_id = unique_run_id()
-            checkpoint_path, validation_path = run_paths(activation, run_id, model_name=MODEL_NAME)
+            checkpoint_path, validation_path = run_paths(activation, run_id, root=PROJECT_ROOT, model_name=MODEL_NAME)
             total_steps = EPOCHS * len(train_loader)
             warmup_steps = math.ceil(WARMUP_FRACTION * total_steps)
             schedule = {"type": "linear_warmup_then_constant", "fraction": WARMUP_FRACTION,
@@ -288,12 +282,27 @@ def execute_sweep(directory, resume=False):
             print(f"\nSTART {run_id} | {activation} | target_lr={rate:g} | {EPOCHS} epochs | warmup={warmup_steps}/{total_steps} steps", flush=True)
             synchronize(device)
             run_start = time.perf_counter()
-            model, history, best_epoch, logits, labels = train_model(
-                model, train_loader, val_loader, torch.nn.CrossEntropyLoss(reduction="none"),
-                EPOCHS, checkpoint_path, learning_rate=rate,
-                warmup_fraction=WARMUP_FRACTION, weight_decay=WEIGHT_DECAY,
-                l2_strength=L2_STRENGTH, decoupled_weight_decay=DECOUPLED_WEIGHT_DECAY,
-            )
+            run_directory = checkpoint_path.parent
+            write_json(run_directory / "config.json", {
+                "model_config": model_config, "seed": SEED, "validation_fraction": VALIDATION_FRACTION,
+                "batch_size": BATCH_SIZE, "epochs": EPOCHS, "learning_rate": rate,
+                "schedule": schedule, "augmentation": rotation_configuration(ROTATION_DEGREES, AUGMENTATION_SEED, ROTATION_ANGLES),
+                "regularization": regularization_configuration(L2_STRENGTH, DECOUPLED_WEIGHT_DECAY),
+                "optimizer": "AdamW" if DECOUPLED_WEIGHT_DECAY else "Adam", "weight_decay": WEIGHT_DECAY})
+            write_json(run_directory / "record.json", {"run_id": run_id, "experiment_group": str(directory)})
+            write_run_readme(run_directory, status="running")
+            try:
+                with (run_directory / "run.log").open("x") as run_log, redirect_stdout(Tee(sys.stdout, run_log)), redirect_stderr(Tee(sys.stderr, run_log)):
+                    model, history, best_epoch, logits, labels = train_model(
+                        model, train_loader, val_loader, torch.nn.CrossEntropyLoss(reduction="none"),
+                        EPOCHS, checkpoint_path, learning_rate=rate,
+                        warmup_fraction=WARMUP_FRACTION, weight_decay=WEIGHT_DECAY,
+                        l2_strength=L2_STRENGTH, decoupled_weight_decay=DECOUPLED_WEIGHT_DECAY,
+                    )
+            except BaseException as error:
+                write_json(run_directory / "record.json", {"run_id": run_id, "error": str(error), "experiment_group": str(directory)})
+                write_run_readme(run_directory, status="interrupted_or_failed")
+                raise
             synchronize(device)
             elapsed = time.perf_counter() - run_start
             val_images, val_labels = val_loader.dataset.tensors
@@ -317,6 +326,7 @@ def execute_sweep(directory, resume=False):
             validation_path.parent.mkdir(parents=True, exist_ok=True)
             with validation_path.open("xb") as output:
                 torch.save(artifact, output)
+            save_run_record(run_directory, artifact, status="completed")
             best = history[best_epoch - 1]
             predictions = logits.argmax(1)
             matrix = torch.bincount(labels * 10 + predictions, minlength=100).reshape(10, 10).double()
@@ -345,7 +355,7 @@ def execute_sweep(directory, resume=False):
 def active_sweep_directories():
     """Read managed-run locks without starting or interrupting any work."""
     active = []
-    for lock_path in (PROJECT_ROOT / "data/experiments").glob("bespoke_lr_sweep_*/.sweep.lock"):
+    for lock_path in (PROJECT_ROOT / "data/runs/experiments").glob("bespoke_lr_sweep_*/.sweep.lock"):
         with lock_path.open("r") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -361,7 +371,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", help="Execute all eight authorized serial runs")
     parser.add_argument("--resume-directory", type=Path, help="Recover completed runs and restart incomplete configurations with new IDs")
-    parser.add_argument("--model", choices=("bespoke", "bespoke28"), default=MODEL_NAME)
+    parser.add_argument("--model", choices=("bespoke_upsampling", "bespoke"), default=MODEL_NAME)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--learning-rates", type=float, nargs="+", default=TARGET_RATES)
     parser.add_argument("--warmup-fraction", type=float, default=WARMUP_FRACTION)
@@ -401,7 +411,7 @@ def main():
         parser.error("A managed sweep is already running; no duplicate training started: " + str(active[0]))
     if args.resume_directory:
         directory = args.resume_directory.resolve()
-        if directory.parent != (PROJECT_ROOT / "data/experiments").resolve():
+        if directory.parent != (PROJECT_ROOT / "data/runs/experiments").resolve():
             raise ValueError("Resume directory must be an existing project experiment")
         if not (directory / "status.json").is_file():
             raise ValueError("Resume status file not found")
@@ -410,11 +420,11 @@ def main():
             parser.error("Saved experiment uses different regularization; choose a new results directory")
         if prior_status.get("augmentation", rotation_configuration()) != rotation_configuration(ROTATION_DEGREES, AUGMENTATION_SEED, ROTATION_ANGLES):
             parser.error("Saved experiment uses different augmentation; choose a new results directory")
-        prior_model = prior_status.get("model_name", "bespoke")
+        prior_model = prior_status.get("model_name", "bespoke_upsampling")
         if prior_model != MODEL_NAME:
             parser.error("Saved experiment uses a different model; choose a new results directory")
     else:
-        directory = PROJECT_ROOT / "data/experiments" / f"bespoke_lr_sweep_{unique_run_id()}"
+        directory = PROJECT_ROOT / "data/runs/experiments" / f"bespoke_lr_sweep_{unique_run_id()}"
         directory.mkdir(parents=True, exist_ok=False)
     lock = (directory / ".sweep.lock").open("a+")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
