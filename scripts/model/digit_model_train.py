@@ -195,7 +195,11 @@ def train_model(model, train_loader, val_loader, loss_function,
     one for each image in the batch.
     Labels must be integer class indices.
     Also return the best epoch's validation logits and matching labels on CPU,
-    in validation-loader order. Only the current and best epochs are retained.
+    in validation-loader order. The return value and restored model remain loss-selected.
+    Also save <checkpoint stem>_accuracy.pt and <checkpoint stem>_accuracy_output.pt
+    beside checkpoint_path: highest-accuracy weights and matching validation scores.
+    Accuracy ties prefer lower validation loss, then the earlier epoch. Existing
+    checkpoint/output files are never overwritten by a new training call.
     Optional linear warmup covers ceil(warmup_fraction * total optimizer steps),
     followed by a constant rate. Defaults preserve the original training path.
     Explicit L2 adds lambda/2 * sum(weight**2) to mean training CE only.
@@ -224,6 +228,11 @@ def train_model(model, train_loader, val_loader, loss_function,
     optimizer = build_training_optimizer(model, learning_rate, weight_decay, decoupled_weight_decay)
 
     checkpoint_path = Path(checkpoint_path)
+    accuracy_path = checkpoint_path.with_name(f"{checkpoint_path.stem}_accuracy.pt")
+    accuracy_output_path = checkpoint_path.with_name(f"{checkpoint_path.stem}_accuracy_output.pt")
+    for path in (checkpoint_path, accuracy_path, accuracy_output_path):
+        if path.exists():
+            raise FileExistsError(f"Training needs fresh checkpoint paths: {path}")
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
     history = []
@@ -231,6 +240,7 @@ def train_model(model, train_loader, val_loader, loss_function,
     best_epoch = None
     best_val_logits = None
     best_val_labels = None
+    best_accuracy_key = (-float("inf"), -float("inf"))
 
     # below we will assume each loader processes every image in its dataset once per epoch.
     train_count = len(train_loader.dataset)
@@ -269,6 +279,24 @@ def train_model(model, train_loader, val_loader, loss_function,
             best_val_loss, best_epoch, best_val_logits, best_val_labels,
         )
 
+        # Retain a second usable model without changing loss-based selection.
+        accuracy_key = (metrics["val_accuracy"], -metrics["val_loss"])
+        if accuracy_key > best_accuracy_key:
+            best_accuracy_key = accuracy_key
+            torch.save(
+                {name: value.detach().cpu().clone() for name, value in model.state_dict().items()},
+                accuracy_path,
+            )
+            accuracy_output = {
+                "checkpoint_path": str(accuracy_path.resolve()),
+                "checkpoint_selection": "highest_validation_accuracy",
+                "best_epoch": epoch,
+                "metrics": dict(metrics),
+                "logits": torch.cat(epoch_val_logits),
+                "labels": torch.cat(epoch_val_labels),
+            }
+            torch.save(accuracy_output, accuracy_output_path)
+
         print(
             f"Epoch {epoch:02d}/{epochs} | "
             f"train loss {metrics['train_loss']:.4f}, accuracy {metrics['train_accuracy']:.2%} | "
@@ -276,10 +304,13 @@ def train_model(model, train_loader, val_loader, loss_function,
             flush=True,
         )
 
+    accuracy_output["history"] = history
+    torch.save(accuracy_output, accuracy_output_path)
     model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
     model.eval()
     print(f"Restored epoch {best_epoch}: validation loss {best_val_loss:.4f}")
     print(f"Best weights saved to: {checkpoint_path}")
+    print(f"Highest-accuracy weights saved to: {accuracy_path}")
     return model, history, best_epoch, best_val_logits, best_val_labels
 
 

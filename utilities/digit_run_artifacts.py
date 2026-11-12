@@ -47,7 +47,10 @@ def load_run(path, root=PROJECT_ROOT):
     path = validation_path(path)
     saved = torch.load(path, map_location='cpu', weights_only=True)
     saved = dict(saved)
-    adjacent = path.resolve().parent / 'checkpoint.pt'
+    if saved.get('checkpoint_selection') == 'highest_validation_accuracy':
+        adjacent = path.with_name(path.name.removesuffix('_output.pt') + '.pt').resolve()
+    else:
+        adjacent = path.resolve().parent / 'checkpoint.pt'
     if adjacent.is_file():
         saved['checkpoint_path'] = str(adjacent)
     if saved.get('sweep_directory'):
@@ -90,6 +93,23 @@ def save_run_record(directory, artifact, *, status=None):
         'validation_fraction': artifact.get('validation_fraction'),
         'environment': artifact.get('environment', {}),
     })
+    # Complete the accuracy-selected record with the same run/split settings.
+    # Its own epoch, predictions and selection always take precedence.
+    checkpoint = Path(artifact.get('checkpoint_path', directory / 'checkpoint.pt'))
+    accuracy_output_path = directory / f"{checkpoint.stem}_accuracy_output.pt"
+    if accuracy_output_path.is_file():
+        accuracy_output = torch.load(accuracy_output_path, map_location='cpu', weights_only=True)
+        if accuracy_output.get('checkpoint_selection') == 'highest_validation_accuracy':
+            if not torch.equal(accuracy_output['labels'], artifact['labels']):
+                raise ValueError('Accuracy output labels differ from the run validation labels')
+            if accuracy_output['history'] != artifact.get('history', []):
+                raise ValueError('Accuracy output history differs from the run history')
+            accuracy_record = {**artifact, **accuracy_output}
+            accuracy_record['training_config'] = {
+                **artifact.get('training_config', {}),
+                'checkpoint_selection': 'highest_validation_accuracy',
+            }
+            torch.save(accuracy_record, accuracy_output_path)
     history = artifact.get('history', [])
     write_json(directory / 'history.json', history)
     write_json(directory / 'record.json', {
@@ -136,7 +156,9 @@ def write_run_readme(directory, artifact=None, status=None):
     else:
         lines += ['No paired output has been saved for this record.', '']
     descriptions = {
-        'checkpoint.pt': 'Saved model weights.',
+        'checkpoint.pt': 'Minimum-validation-loss model weights.',
+        'checkpoint_accuracy.pt': 'Highest-validation-accuracy model weights.',
+        'checkpoint_accuracy_output.pt': 'Matching accuracy-selected scores, epoch, metrics and run settings.',
         'output.pt': 'Validation logits, labels and run metadata.',
         'config.json': 'Available model and training settings.',
         'history.json': 'Per-epoch metrics in JSON.',

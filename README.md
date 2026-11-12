@@ -98,3 +98,18 @@ python utilities/predict_digits.py --config-from data/runs/REPLACE_WITH_RUN_ID
 Prediction output defaults to `predictions.csv` beside the selected checkpoint.
 Existing prediction defaults still select LeNet. `compare_training_runs.py` checks
 repeatability; use notebook validation metrics to compare different activations.
+
+### Two saved checkpoints per training run
+
+New training runs keep both selections. `checkpoint.pt` and `output.pt` still
+refer to the lowest-validation-loss epoch, and training still returns that model.
+`checkpoint_accuracy.pt` and `checkpoint_accuracy_output.pt` retain the
+highest-validation-accuracy epoch and its matching scores. Accuracy ties use the
+lower validation loss; an exact tie keeps the earlier epoch. Custom checkpoint
+names use the same `_accuracy.pt` and `_accuracy_output.pt` suffixes.
+
+After the run record is saved, either output file carries the model and split
+settings. For example, use `--config-from data/runs/RUN_ID/checkpoint_accuracy_output.pt`
+to predict with the accuracy-selected model. Specify a separate `--output` CSV
+when comparing both models. Existing runs are not retroactively changed. These
+are inference weights, not optimizer-state checkpoints for resuming training.
